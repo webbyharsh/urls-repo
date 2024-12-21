@@ -6,13 +6,13 @@ const path = require('path');
 const PARALLEL_LIMIT = 10;
 
 // Helper function to capture a screenshot of a single URL
-const captureScreenshot = async (browser, url, screenshotDir) => {
+const captureScreenshot = async (browser, url, screenshotDir, progressCallback, failedUrls) => {
     const page = await browser.newPage();
     try {
         console.log(`Processing: ${url}`);
 
         // Set a smaller viewport to reduce screenshot size
-        await page.setViewport({ width: 800, height: 600 });
+        await page.setViewport({ width: 1024, height: 768 });
 
         // Navigate to the URL
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
@@ -31,8 +31,11 @@ const captureScreenshot = async (browser, url, screenshotDir) => {
         console.log(`Screenshot saved: ${screenshotPath}`);
     } catch (error) {
         console.error(`Failed to process ${url}:`, error.message);
+        // Log the failed URL to the array
+        failedUrls.push(url);
     } finally {
         await page.close();
+        progressCallback();
     }
 };
 
@@ -46,6 +49,16 @@ const captureScreenshot = async (browser, url, screenshotDir) => {
     }
 
     const urls = fs.readFileSync(filePath, 'utf-8').split('\n').map(url => url.trim()).filter(Boolean);
+    const totalUrls = urls.length;
+    let processedUrls = 0;
+    const failedUrls = [];
+
+    // Progress callback
+    const updateProgress = () => {
+        processedUrls++;
+        const percentage = ((processedUrls / totalUrls) * 100).toFixed(2);
+        console.log(`Progress: ${percentage}% (${processedUrls}/${totalUrls})`);
+    };
 
     // Create a screenshots directory if it doesn't exist
     const screenshotDir = path.resolve(__dirname, 'screenshots');
@@ -63,11 +76,18 @@ const captureScreenshot = async (browser, url, screenshotDir) => {
         const chunk = urls.slice(i, i + PARALLEL_LIMIT);
 
         // Process each chunk in parallel
-        await Promise.all(chunk.map(url => captureScreenshot(browser, url, screenshotDir)));
+        await Promise.all(chunk.map(url => captureScreenshot(browser, url, screenshotDir, updateProgress, failedUrls)));
     }
 
     // Close the browser
     await browser.close();
+
+    // Save the failed URLs to a file
+    if (failedUrls.length > 0) {
+        const failedFilePath = path.resolve(__dirname, 'failed_urls.txt');
+        fs.writeFileSync(failedFilePath, failedUrls.join('\n'), 'utf-8');
+        console.log(`Failed URLs saved to ${failedFilePath}`);
+    }
 
     console.log('All screenshots captured successfully!');
 })();
